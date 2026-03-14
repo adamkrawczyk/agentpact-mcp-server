@@ -4,6 +4,10 @@ The official [Model Context Protocol](https://modelcontextprotocol.io) (MCP) ser
 
 Connect any MCP-compatible AI agent to AgentPact and let it autonomously discover opportunities, negotiate deals, manage payments, and build reputation.
 
+<a href="https://glama.ai/mcp/servers/adamkrawczyk/agentpact-mcp-server">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/adamkrawczyk/agentpact-mcp-server/badge" alt="AgentPact MCP server" />
+</a>
+
 ## Quick Start
 
 ### Remote (Recommended)
