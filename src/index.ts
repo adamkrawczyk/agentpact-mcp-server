@@ -1574,6 +1574,130 @@ const tools: Tool[] = [
     },
   },
 
+  // ── Convenience: Paid Deal Flow ──
+  {
+    name: "agentpact.quick_buy",
+    description:
+      "One-call shortcut to buy an offer: creates a matching need and proposes a single-milestone deal. Returns the deal object with next-step instructions.",
+    annotations: {
+      title: "Quick Buy",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      required: ["offerId", "buyerAgentId"],
+      properties: {
+        offerId: {
+          type: "string",
+          format: "uuid",
+          description: "The UUID of the offer to buy",
+        },
+        buyerAgentId: {
+          type: "string",
+          format: "uuid",
+          description: "Your buyer agent UUID",
+        },
+        negotiatedTotal: {
+          type: "number",
+          description:
+            "Total price in USDC. Defaults to the offer's basePrice if omitted.",
+        },
+        needTitle: {
+          type: "string",
+          description:
+            "Title for the auto-created need. Auto-generated from the offer title if omitted.",
+        },
+        notes: {
+          type: "string",
+          description: "Optional notes attached to the deal proposal",
+        },
+        apiKey: {
+          type: "string",
+          description: "Your AgentPact API key",
+        },
+      },
+    },
+  },
+  {
+    name: "agentpact.quick_sell",
+    description:
+      "One-call shortcut to list a service for sale: creates an offer with paid defaults (20% price flexibility, generic fulfillment). Returns the offer object with next-step instructions.",
+    annotations: {
+      title: "Quick Sell",
+      readOnlyHint: false,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      required: ["agentId", "title", "descriptionMd", "category", "basePrice"],
+      properties: {
+        agentId: {
+          type: "string",
+          format: "uuid",
+          description: "Your seller agent UUID",
+        },
+        title: {
+          type: "string",
+          description: "Short title for the offer",
+        },
+        descriptionMd: {
+          type: "string",
+          description: "Full Markdown description of what you are selling",
+        },
+        category: {
+          type: "string",
+          description: "Marketplace category (e.g. 'data', 'automation')",
+        },
+        basePrice: {
+          type: "number",
+          description: "Base price in USDC",
+        },
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional tags for discoverability",
+        },
+        fulfillmentType: {
+          type: "string",
+          enum: [
+            "api-access",
+            "code-task",
+            "data-delivery",
+            "compute-access",
+            "consulting",
+            "physical-service",
+            "generic",
+          ],
+          description: "Fulfillment template type. Defaults to 'generic'.",
+        },
+        deliveryDays: {
+          type: "number",
+          description:
+            "Expected delivery window in days, shown in the description. Defaults to 7.",
+        },
+        apiKey: {
+          type: "string",
+          description: "Your AgentPact API key",
+        },
+      },
+    },
+  },
+  {
+    name: "agentpact.paid_deal_templates",
+    description:
+      "Returns ready-to-use milestone structures for common deal shapes: fixed-price, 2-milestone, 3-milestone, and hourly. Use the example payloads directly with agentpact.propose_deal.",
+    annotations: {
+      title: "Paid Deal Templates",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+
   // ── Webhooks ──
   {
     name: "agentpact.register_webhook",
@@ -1957,6 +2081,308 @@ function handleToolCall(name: string, rawArgs: Json) {
           apiKey,
         ),
       );
+
+    // Convenience: Paid Deal Flow
+    case "agentpact.quick_buy": {
+      return (async () => {
+        const { offerId, buyerAgentId, negotiatedTotal, needTitle, notes } =
+          args as {
+            offerId: string;
+            buyerAgentId: string;
+            negotiatedTotal?: number;
+            needTitle?: string;
+            notes?: string;
+          };
+
+        const offer = (await api(
+          `/api/offers/${offerId}`,
+          "GET",
+          undefined,
+          apiKey,
+        )) as {
+          id: string;
+          agentId: string;
+          title: string;
+          category: string;
+          tags?: string[];
+          basePrice: number;
+          maxPriceDeltaPct?: number;
+        };
+
+        const total = negotiatedTotal ?? offer.basePrice;
+
+        const need = (await api(
+          "/api/needs",
+          "POST",
+          {
+            agentId: buyerAgentId,
+            title: needTitle ?? `Buying: ${offer.title}`,
+            descriptionMd: `Purchasing offer: ${offer.title}`,
+            category: offer.category,
+            tags: offer.tags ?? [],
+            budgetMin: total,
+            budgetMax: total,
+          },
+          apiKey,
+        )) as { id: string };
+
+        const deadline = new Date(
+          Date.now() + 7 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const deal = await api(
+          "/api/deals/propose",
+          "POST",
+          {
+            buyerAgentId,
+            sellerAgentId: offer.agentId,
+            offerId,
+            needId: need.id,
+            negotiatedTotal: total,
+            maxPriceDeltaPct: offer.maxPriceDeltaPct ?? 20,
+            milestones: [
+              {
+                title: "Full delivery",
+                description: `Complete delivery for: ${offer.title}`,
+                amount: total,
+                deadline,
+              },
+            ],
+            ...(notes ? { notes } : {}),
+          },
+          apiKey,
+        );
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  deal,
+                  need,
+                  nextSteps:
+                    "Deal proposed. The seller must now accept it via agentpact.accept_deal. Once accepted, fund the milestone with agentpact.create_payment_intent, then close with agentpact.close_deal after delivery.",
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      })();
+    }
+
+    case "agentpact.quick_sell": {
+      return (async () => {
+        const {
+          agentId,
+          title,
+          descriptionMd,
+          category,
+          basePrice,
+          tags,
+          fulfillmentType,
+          deliveryDays,
+        } = args as {
+          agentId: string;
+          title: string;
+          descriptionMd: string;
+          category: string;
+          basePrice: number;
+          tags?: string[];
+          fulfillmentType?: string;
+          deliveryDays?: number;
+        };
+
+        const offer = (await api(
+          "/api/offers",
+          "POST",
+          {
+            agentId,
+            title,
+            descriptionMd,
+            category,
+            tags: tags ?? [],
+            basePrice,
+            fulfillmentType: fulfillmentType ?? "generic",
+            maxPriceDeltaPct: 20,
+          },
+          apiKey,
+        )) as { id: string };
+
+        const days = deliveryDays ?? 7;
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                {
+                  offer,
+                  nextSteps: `Offer listed with a ${days}-day delivery window and 20% price flexibility. Buyers can discover it via agentpact.search_offers or agentpact.quick_buy with offerId "${offer.id}". Accept incoming deal proposals with agentpact.accept_deal.`,
+                },
+                null,
+                2,
+              ),
+            },
+          ],
+        };
+      })();
+    }
+
+    case "agentpact.paid_deal_templates": {
+      const d = (days: number) =>
+        new Date(Date.now() + days * 86400000).toISOString().split("T")[0];
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                templates: {
+                  "fixed-price": {
+                    description: "Single milestone, full payment upfront",
+                    milestones: [
+                      {
+                        title: "Full delivery",
+                        description: "Complete project delivery",
+                        amountPct: 100,
+                        deadlineDays: 7,
+                      },
+                    ],
+                    defaults: { maxPriceDeltaPct: 0 },
+                    example: {
+                      negotiatedTotal: 100,
+                      maxPriceDeltaPct: 0,
+                      milestones: [
+                        {
+                          title: "Full delivery",
+                          description: "Complete project delivery",
+                          amount: 100,
+                          deadline: d(7),
+                        },
+                      ],
+                    },
+                  },
+                  "milestone-2": {
+                    description: "Two milestones, 50/50 split",
+                    milestones: [
+                      {
+                        title: "Milestone 1",
+                        description: "First half delivery",
+                        amountPct: 50,
+                        deadlineDays: 7,
+                      },
+                      {
+                        title: "Milestone 2",
+                        description: "Final delivery",
+                        amountPct: 50,
+                        deadlineDays: 14,
+                      },
+                    ],
+                    defaults: { maxPriceDeltaPct: 10 },
+                    example: {
+                      negotiatedTotal: 100,
+                      maxPriceDeltaPct: 10,
+                      milestones: [
+                        {
+                          title: "Milestone 1",
+                          description: "First half delivery",
+                          amount: 50,
+                          deadline: d(7),
+                        },
+                        {
+                          title: "Milestone 2",
+                          description: "Final delivery",
+                          amount: 50,
+                          deadline: d(14),
+                        },
+                      ],
+                    },
+                  },
+                  "milestone-3": {
+                    description: "Three milestones, 40/30/30 split",
+                    milestones: [
+                      {
+                        title: "Kickoff",
+                        description: "Initial deliverable",
+                        amountPct: 40,
+                        deadlineDays: 5,
+                      },
+                      {
+                        title: "Midpoint",
+                        description: "Mid-project deliverable",
+                        amountPct: 30,
+                        deadlineDays: 10,
+                      },
+                      {
+                        title: "Final",
+                        description: "Final deliverable",
+                        amountPct: 30,
+                        deadlineDays: 14,
+                      },
+                    ],
+                    defaults: { maxPriceDeltaPct: 10 },
+                    example: {
+                      negotiatedTotal: 100,
+                      maxPriceDeltaPct: 10,
+                      milestones: [
+                        {
+                          title: "Kickoff",
+                          description: "Initial deliverable",
+                          amount: 40,
+                          deadline: d(5),
+                        },
+                        {
+                          title: "Midpoint",
+                          description: "Mid-project deliverable",
+                          amount: 30,
+                          deadline: d(10),
+                        },
+                        {
+                          title: "Final",
+                          description: "Final deliverable",
+                          amount: 30,
+                          deadline: d(14),
+                        },
+                      ],
+                    },
+                  },
+                  hourly: {
+                    description: "Based on estimated hours × hourly rate",
+                    milestones: [
+                      {
+                        title: "Work delivery",
+                        description: "Hours worked × hourly rate",
+                        amountPct: 100,
+                        deadlineDays: 7,
+                      },
+                    ],
+                    defaults: { maxPriceDeltaPct: 20 },
+                    example: {
+                      negotiatedTotal: 150,
+                      maxPriceDeltaPct: 20,
+                      milestones: [
+                        {
+                          title: "Work delivery",
+                          description: "5 hours × $30/hr",
+                          amount: 150,
+                          deadline: d(7),
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    }
 
     // Webhooks
     case "agentpact.register_webhook":
