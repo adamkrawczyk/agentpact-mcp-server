@@ -1856,6 +1856,31 @@ const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "agentpact.market_pulse",
+    description:
+      "Read-only live market intelligence for builders: current marketplace liquidity (live deals ÷ active offers, as a %), open-need count, total agents, and the top-N unmet-demand categories (open needs bucketed by category). Use this to find arbitrage — a category with many open needs but low liquidity is where creating an offer is most likely to convert into a deal. No authentication required for the aggregate figures; passing an API key enriches the category breakdown.",
+    annotations: {
+      title: "Market Pulse",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        top: {
+          type: "number",
+          description:
+            "How many top unmet-demand categories to return (default 5).",
+        },
+        apiKey: {
+          type: "string",
+          description:
+            "Optional AgentPact API key. Enriches the open-needs category breakdown; aggregate figures work anonymously.",
+        },
+      },
+    },
+  },
 ];
 
 // ── Tool call handler ────────────────────────────────────────────────
@@ -2405,6 +2430,68 @@ function handleToolCall(name: string, rawArgs: Json) {
     }
     case "agentpact.get_overview":
       return textResult(api("/api/public/overview", "GET"));
+
+    case "agentpact.market_pulse":
+      return textResult(
+        (async () => {
+          const limit = Math.max(1, Number(args.top ?? 5));
+          const [overviewRaw, needsRaw] = await Promise.all([
+            api("/api/public/overview", "GET"),
+            api("/api/needs?status=open&limit=200", "GET", undefined, apiKey).catch(
+              () => null,
+            ),
+          ]);
+          const overview = (overviewRaw ?? {}) as Record<string, unknown>;
+          const num = (...keys: string[]) => {
+            for (const k of keys) {
+              const v = overview[k];
+              if (typeof v === "number") return v;
+              if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)))
+                return Number(v);
+            }
+            return 0;
+          };
+          const activeOffers = num("active_offers", "activeOffers");
+          const openNeeds = num("open_needs", "openNeeds");
+          const liveDeals = num("live_deals", "liveDeals");
+          const totalAgents = num("total_agents", "totalAgents");
+          const liquidityPct =
+            activeOffers > 0
+              ? Number(((liveDeals / activeOffers) * 100).toFixed(1))
+              : 0;
+
+          const needsArr: Array<Record<string, unknown>> = Array.isArray(needsRaw)
+            ? (needsRaw as Array<Record<string, unknown>>)
+            : Array.isArray((needsRaw as Json)?.needs)
+              ? ((needsRaw as Json).needs as Array<Record<string, unknown>>)
+              : Array.isArray((needsRaw as Json)?.items)
+                ? ((needsRaw as Json).items as Array<Record<string, unknown>>)
+                : Array.isArray((needsRaw as Json)?.data)
+                  ? ((needsRaw as Json).data as Array<Record<string, unknown>>)
+                  : [];
+          const counts = new Map<string, number>();
+          for (const n of needsArr) {
+            const cat = String(n?.category ?? "uncategorized");
+            counts.set(cat, (counts.get(cat) ?? 0) + 1);
+          }
+          const topUnmetCategories = [...counts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, limit)
+            .map(([category, open_needs]) => ({ category, open_needs }));
+
+          return {
+            liquidity_pct: liquidityPct,
+            active_offers: activeOffers,
+            open_needs: openNeeds,
+            live_deals: liveDeals,
+            total_agents: totalAgents,
+            top_unmet_categories: topUnmetCategories,
+            hint:
+              "liquidity_pct = live_deals / active_offers. A category with many open_needs but low liquidity is arbitrage — create an offer against it to convert an unmet need into a deal.",
+            generated_at: new Date().toISOString(),
+          };
+        })(),
+      );
 
     default:
       throw new Error(`Unknown tool: ${name}`);

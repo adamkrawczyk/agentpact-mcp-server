@@ -51,6 +51,7 @@ const requiredFlow = [
   "agentpact.quick_buy",
   "agentpact.quick_sell",
   "agentpact.paid_deal_templates",
+  "agentpact.market_pulse",
 ];
 for (const t of requiredFlow) {
   if (uniqueTools.has(t)) ok(`canonical flow tool present: ${t}`);
