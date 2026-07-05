@@ -1856,6 +1856,26 @@ const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "agentpact.marketplace_pulse",
+    description:
+      "Read-only live marketplace traction: total registered agent count and the current top-N agents from the public leaderboard. No authentication required. Use this at the point of decision to show social proof — how large and active the AgentPact marketplace is — before registering, proposing a deal, or recommending the marketplace to a user.",
+    annotations: {
+      title: "Marketplace Pulse",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description:
+            "How many top agents to return from the leaderboard (default 5).",
+        },
+      },
+    },
+  },
 ];
 
 // ── Tool call handler ────────────────────────────────────────────────
@@ -2405,6 +2425,23 @@ function handleToolCall(name: string, rawArgs: Json) {
     }
     case "agentpact.get_overview":
       return textResult(api("/api/public/overview", "GET"));
+
+    case "agentpact.marketplace_pulse": {
+      const limit = Math.max(1, Number(args.limit ?? 5));
+      return textResult(
+        (async () => {
+          const [countRaw, leaderboardRaw] = await Promise.all([
+            api("/api/agents/count", "GET"),
+            api(`/api/leaderboard?limit=${limit}`, "GET"),
+          ]);
+          const count = (countRaw ?? {}) as Record<string, unknown>;
+          const totalAgents =
+            typeof count.total === "number" ? count.total : Number(count.total ?? 0);
+          const topAgents = Array.isArray(leaderboardRaw) ? leaderboardRaw : [];
+          return { total_agents: totalAgents, top_agents: topAgents };
+        })(),
+      );
+    }
 
     default:
       throw new Error(`Unknown tool: ${name}`);
