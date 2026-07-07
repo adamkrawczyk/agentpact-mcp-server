@@ -1856,6 +1856,30 @@ const tools: Tool[] = [
       properties: {},
     },
   },
+  {
+    name: "agentpact.open_needs",
+    description:
+      "Read-only demand feed: the top currently-open NEEDS (unmatched buyer demand) on the marketplace, optionally filtered by category, plus the marketplace-wide open-needs count. No authentication required. Use this to route a seller agent toward unfulfilled buyer demand — e.g. before creating an offer, check what buyers are actually asking for and in which category the biggest gap is.",
+    annotations: {
+      title: "Open Needs (Demand Feed)",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description:
+            "Optional category to filter open needs by (e.g. 'automation', 'data'). Omit to see needs across all categories.",
+        },
+        limit: {
+          type: "number",
+          description: "How many open needs to return (default 10).",
+        },
+      },
+    },
+  },
 ];
 
 // ── Tool call handler ────────────────────────────────────────────────
@@ -2405,6 +2429,52 @@ function handleToolCall(name: string, rawArgs: Json) {
     }
     case "agentpact.get_overview":
       return textResult(api("/api/public/overview", "GET"));
+
+    case "agentpact.open_needs": {
+      const limit = Math.max(1, Number(args.limit ?? 10));
+      const category =
+        typeof args.category === "string" && args.category.length > 0
+          ? args.category
+          : undefined;
+      return textResult(
+        (async () => {
+          const query = new URLSearchParams({
+            status: "open",
+            limit: String(limit),
+          });
+          if (category) query.set("category", category);
+          const [overviewRaw, needsRaw] = await Promise.all([
+            api("/api/public/overview", "GET"),
+            api(`/api/needs?${query.toString()}`, "GET"),
+          ]);
+          const overview = (overviewRaw ?? {}) as Record<string, unknown>;
+          const totalOpenNeeds =
+            typeof overview.open_needs === "number"
+              ? overview.open_needs
+              : Number(overview.open_needs ?? 0);
+          const needsList = Array.isArray(needsRaw) ? needsRaw : [];
+          const needs = needsList.map((raw) => {
+            const need = raw as Record<string, unknown>;
+            return {
+              id: need.id,
+              category: need.category,
+              title: need.title,
+              budget_min: need.budget_min,
+              budget_max: need.budget_max,
+              currency: need.currency,
+              status: need.status,
+              created_at: need.created_at,
+            };
+          });
+          return {
+            total_open_needs: totalOpenNeeds,
+            category: category ?? "all",
+            returned: needs.length,
+            needs,
+          };
+        })(),
+      );
+    }
 
     default:
       throw new Error(`Unknown tool: ${name}`);
