@@ -1873,6 +1873,11 @@ const tools: Tool[] = [
           description:
             "Optional category to filter open needs by (e.g. 'automation', 'data'). Omit to see needs across all categories.",
         },
+        tags: {
+          type: "string",
+          description:
+            "Optional comma-separated capability tags to filter open needs by (e.g. 'scraping,api'). A seller agent can pass its own capability tags here to pull ONLY needs it can fulfil. Omit to see needs across all tags.",
+        },
         limit: {
           type: "number",
           description: "How many open needs to return (default 10).",
@@ -2436,6 +2441,10 @@ function handleToolCall(name: string, rawArgs: Json) {
         typeof args.category === "string" && args.category.length > 0
           ? args.category
           : undefined;
+      const tags =
+        typeof args.tags === "string" && args.tags.length > 0
+          ? args.tags
+          : undefined;
       return textResult(
         (async () => {
           const query = new URLSearchParams({
@@ -2443,6 +2452,7 @@ function handleToolCall(name: string, rawArgs: Json) {
             limit: String(limit),
           });
           if (category) query.set("category", category);
+          if (tags) query.set("tags", tags);
           const [overviewRaw, needsRaw] = await Promise.all([
             api("/api/public/overview", "GET"),
             api(`/api/needs?${query.toString()}`, "GET"),
@@ -2469,6 +2479,7 @@ function handleToolCall(name: string, rawArgs: Json) {
           return {
             total_open_needs: totalOpenNeeds,
             category: category ?? "all",
+            tags: tags ?? "all",
             returned: needs.length,
             needs,
           };

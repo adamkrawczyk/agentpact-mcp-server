@@ -181,6 +181,7 @@ const listPayload = {
 };
 
 let toolNames;
+let rawTools;
 try {
   const listRes = await fetch(`${base}/mcp`, {
     method: "POST",
@@ -206,8 +207,9 @@ try {
     process.exit(1);
   }
 
-  const rawTools = listBody.result?.tools ?? [];
-  toolNames = new Set(rawTools.map((t) => t.name));
+  const rawToolsLocal = listBody.result?.tools ?? [];
+  rawTools = rawToolsLocal;
+  toolNames = new Set(rawToolsLocal.map((t) => t.name));
 
   if (toolNames.size >= 40) {
     ok(`tools/list returned ${toolNames.size} tools (≥40 expected)`);
@@ -233,6 +235,17 @@ for (const t of required) {
   } else {
     bad("canonical flow tool (runtime)", `missing ${t} in live tools/list response (regression on e873207)`);
   }
+}
+
+// ── 7. Assert open_needs advertises the tags capability filter ────────
+// Ships in response to atomic-habits 2026-07-13 rank-1: category/tags
+// query-param filter on agentpact.open_needs (route sellers to matching
+// demand, closing the measured 6.3% liquidity gap faster).
+const openNeedsTool = rawTools.find((t) => t.name === "agentpact.open_needs");
+if (openNeedsTool?.inputSchema?.properties?.tags) {
+  ok("agentpact.open_needs advertises tags filter param at runtime");
+} else {
+  bad("agentpact.open_needs tags param", "missing tags property in live tools/list inputSchema (regression on 2026-07-13 rank-1)");
 }
 
 // ── Teardown ─────────────────────────────────────────────────────────
