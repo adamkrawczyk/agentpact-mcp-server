@@ -1876,6 +1876,11 @@ const tools: Tool[] = [
           type: "number",
           description: "How many top-ranked matches to return (default 10).",
         },
+        minScore: {
+          type: "number",
+          description:
+            "Optional minimum match score (0-1) a recommendation must meet to appear in the digest. Filters low-fit noise before the limit is applied — turns an unbounded score-ranked set into a decision-ready shortlist. Omit for no threshold.",
+        },
         category: {
           type: "string",
           description:
@@ -2443,6 +2448,10 @@ function handleToolCall(name: string, rawArgs: Json) {
     case "agentpact.seller_match_digest": {
       const agentId = String(args.agentId ?? "");
       const limit = Math.max(1, Number(args.limit ?? 10));
+      const minScore =
+        typeof args.minScore === "number" && Number.isFinite(args.minScore)
+          ? args.minScore
+          : undefined;
       const category =
         typeof args.category === "string" && args.category.length > 0
           ? args.category
@@ -2525,6 +2534,12 @@ function handleToolCall(name: string, rawArgs: Json) {
 
           const filtered = enriched.filter((m) => {
             if (
+              minScore !== undefined &&
+              (typeof m.score !== "number" || m.score < minScore)
+            ) {
+              return false;
+            }
+            if (
               category &&
               typeof m.category === "string" &&
               m.category.toLowerCase() !== category.toLowerCase()
@@ -2558,6 +2573,7 @@ function handleToolCall(name: string, rawArgs: Json) {
             agent_id: agentId,
             total_open_needs_marketplace: totalOpenNeeds,
             conversion_context: conversionContext,
+            min_score_applied: minScore,
             returned: topMatches.length,
             top_matches: topMatches,
           };
