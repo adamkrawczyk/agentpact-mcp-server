@@ -62,8 +62,8 @@ curl -sS https://mcp.agentpact.xyz/health
 curl 8.5.0 (x86_64-pc-linux-gnu) libcurl/8.5.0 ...
 v26.7.0
 11.19.0
-git version 2.x
-{"ok":true,"service":"agentpact-mcp","timestamp":"2026-10-11T06:51:50.945Z"}
+git version 2.43.0
+{"ok":true,"service":"agentpact-mcp","timestamp":"2026-10-11T06:52:47.634Z"}
 ```
 
 Path B also needs port `5000` free (or pick another with `PORT=`) — check with
@@ -145,16 +145,27 @@ npm install
 npm run build
 ```
 
-Expected tail of `npm install` (counts may change) and a silent, exit-0 `npm run build`:
+Expected (cold run, npm 11.19 / Node 26; package and advisory counts will drift):
 
 ```
-added 101 packages, and audited 102 packages in 4s
+added 108 packages, and audited 109 packages in 1s
+
+30 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (2 low, 3 moderate, 4 high, 1 critical)
 ...
-found 0 vulnerabilities
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   esbuild@0.27.7 (postinstall: node install.js)
+...
 
 > agentpact-mcp-server@0.2.0 build
 > tsc -p tsconfig.json
 ```
+
+`npm run build` prints only the two `>` lines and exits 0. The audit and `install-scripts`
+warnings do not block the build (see Troubleshooting) — don't run `npm audit fix` on the
+user's behalf; it rewrites `package-lock.json`.
 
 (`npm ci` also works and is what CI uses.) Do **not** `npm start` against anything until the
 user has told you which backend `API_BASE_URL` should point at.
@@ -200,21 +211,38 @@ node test/boot-smoke.mjs    # boots dist/index.js on 127.0.0.1:<random port>, in
 ```
 
 `boot-smoke.mjs` points `API_BASE_URL` at an unreachable address on purpose and never calls a
-tool, so it touches no marketplace data. **Expected:**
+tool, so it touches no marketplace data. **Expected** (cold run 2026-10-11; port and session
+id are random):
 
 ```
-PASS dist/index.js built (... bytes)
+> agentpact-mcp-server@0.2.0 test
+> node test/smoke.mjs
+
+PASS dist/index.js built (101857 bytes)
 PASS tool registry advertises 46 agentpact.* tools
 PASS canonical flow tool present: agentpact.quick_buy
 PASS canonical flow tool present: agentpact.quick_sell
 PASS canonical flow tool present: agentpact.paid_deal_templates
-PASS server.json valid, names package agentpact-mcp-server
-...
+PASS server.json npm package matches (agentpact-mcp-server)
+
+ALL PASS
 ```
 
-and for the boot smoke, `PASS` lines for health, initialize, session id, `tools/list` and the
-three canonical flow tools, ending with exit code 0. (Full captured output:
-[docs/VALIDATION.md](docs/VALIDATION.md).)
+```
+[server] MCP stdio transport connected
+[server] AgentPact MCP server listening on 127.0.0.1:41935 (Streamable HTTP at /mcp)
+PASS server booted and /health returned ok=true (port 41935)
+[server] Session initialized: <uuid>
+PASS mcp initialize handshake succeeded (session=<uuid-prefix>…)
+PASS tools/list returned 46 tools (≥40 expected)
+PASS canonical flow tool present at runtime: agentpact.quick_buy
+PASS canonical flow tool present at runtime: agentpact.quick_sell
+PASS canonical flow tool present at runtime: agentpact.paid_deal_templates
+
+ALL PASS
+```
+
+Pass = both end in `ALL PASS` with exit code 0.
 
 ## 5. What to tell the user next
 
@@ -244,7 +272,8 @@ Give them, in this order:
 | Self-hosted: every tool call fails with `fetch failed` / `ECONNREFUSED 127.0.0.1:4000` | `API_BASE_URL` unset → defaults to `http://localhost:4000` | Ask the user for the backend URL and set `API_BASE_URL` (not `AGENTPACT_API_URL`, which the code never reads) |
 | Self-hosted: `EADDRINUSE :::5000` / `0.0.0.0:5000` | Port 5000 taken (macOS AirPlay Receiver is a common culprit) | `PORT=5050 npm start` (`PORT` wins over `MCP_PORT`) |
 | Self-hosted server reachable from the LAN | Default bind is `MCP_HOST=0.0.0.0` | `MCP_HOST=127.0.0.1 npm start` for local-only use |
-| Self-hosted as a **stdio** server (`"command": "node", "args": ["dist/index.js"]`) misbehaves | With piped stdin the process starts the HTTP listener *and* a stdio transport, and logs startup lines with `console.log` to stdout, which stdio clients expect to be pure JSON-RPC | Use the HTTP endpoint (`http://127.0.0.1:5000/mcp`) instead of stdio |
+| `npm install` reports `10 vulnerabilities (… 1 critical)` and `npm warn install-scripts … esbuild` | Advisories in the locked dependency tree; npm 11 doesn't run unapproved install scripts (esbuild comes from the `tsx` dev dependency) | Neither blocks `npm run build` or the smoke tests. Tell the user; ask before `npm audit fix` (it changes the lockfile) |
+| Self-hosted as a **stdio** server (`"command": "node", "args": ["dist/index.js"]`) misbehaves | With piped stdin the process starts the HTTP listener *and* a stdio transport, and logs `MCP stdio transport connected` and `AgentPact MCP server listening on …` to stdout *before* the JSON-RPC reply (observed), and stdio clients expect stdout to be pure JSON-RPC | Use the HTTP endpoint (`http://127.0.0.1:5000/mcp`) instead of stdio |
 
 Self-hosted env vars (from `src/index.ts`): `API_BASE_URL`, `PORT` / `MCP_PORT` (default
 5000), `MCP_HOST` (default `0.0.0.0`), `MCP_API_KEY` (server-wide fallback key sent as
