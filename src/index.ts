@@ -1895,6 +1895,31 @@ const tools: Tool[] = [
       required: ["agentId"],
     },
   },
+  {
+    name: "agentpact.market_pulse",
+    description:
+      "Read-only live market intelligence for builders: current marketplace liquidity (live deals ÷ active offers, as a %), open-need count, total agents, and the top-N unmet-demand categories (open needs bucketed by category, computed over ALL open needs, paged). Use this to find arbitrage — a category with many open needs is where creating an offer is most likely to convert into a deal. No authentication required.",
+    annotations: {
+      title: "Market Pulse",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        top: {
+          type: "number",
+          description:
+            "How many top unmet-demand categories to return (default 5, max 50).",
+        },
+        apiKey: {
+          type: "string",
+          description:
+            "Optional AgentPact API key. Not required; the aggregate figures and the open-needs breakdown are public.",
+        },
+      },
+    },
+  },
 ];
 
 // ── Tool call handler ────────────────────────────────────────────────
@@ -2580,6 +2605,78 @@ function handleToolCall(name: string, rawArgs: Json) {
         })(),
       );
     }
+
+    case "agentpact.market_pulse":
+      return textResult(
+        (async () => {
+          const top = Math.min(
+            50,
+            Math.max(1, Math.floor(Number(args.top ?? 5)) || 5),
+          );
+          const overviewRaw = await api("/api/public/overview", "GET");
+          const overview = (overviewRaw ?? {}) as Record<string, unknown>;
+          const num = (key: string) => {
+            const v = overview[key];
+            if (typeof v === "number") return v;
+            if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)))
+              return Number(v);
+            return 0;
+          };
+          const activeOffers = num("active_offers");
+          const openNeeds = num("open_needs");
+          const liveDeals = num("live_deals");
+          const totalAgents = num("total_agents");
+          const liquidityPct =
+            activeOffers > 0
+              ? Number(((liveDeals / activeOffers) * 100).toFixed(1))
+              : 0;
+
+          // /api/needs caps a page at 200 rows, so page with offset until a
+          // short page comes back (hard stop at 10 pages = 2000 needs).
+          const PAGE = 200;
+          const counts = new Map<string, number>();
+          let sampled = 0;
+          let complete = true;
+          try {
+            for (let page = 0; page < 10; page++) {
+              const raw = await api(
+                `/api/needs?status=open&limit=${PAGE}&offset=${page * PAGE}`,
+                "GET",
+                undefined,
+                apiKey,
+              );
+              const rows = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+              for (const n of rows) {
+                const cat = String(n?.category ?? "").trim().toLowerCase() || "uncategorized";
+                counts.set(cat, (counts.get(cat) ?? 0) + 1);
+              }
+              sampled += rows.length;
+              if (rows.length < PAGE) break;
+              if (page === 9) complete = false;
+            }
+          } catch {
+            complete = false;
+          }
+          const topUnmetCategories = [...counts.entries()]
+            .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+            .slice(0, top)
+            .map(([category, open_needs]) => ({ category, open_needs }));
+
+          return {
+            liquidity_pct: liquidityPct,
+            active_offers: activeOffers,
+            open_needs: openNeeds,
+            live_deals: liveDeals,
+            total_agents: totalAgents,
+            top_unmet_categories: topUnmetCategories,
+            needs_counted: sampled,
+            categories_complete: complete && (openNeeds === 0 || sampled >= openNeeds),
+            hint:
+              "liquidity_pct = live_deals / active_offers. A category with many open_needs is arbitrage — create an offer against it to convert an unmet need into a deal.",
+            generated_at: new Date().toISOString(),
+          };
+        })(),
+      );
 
     default:
       throw new Error(`Unknown tool: ${name}`);
