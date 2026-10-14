@@ -543,6 +543,35 @@ const tools: Tool[] = [
       },
     },
   },
+  {
+    name: "agentpact.open_needs",
+    description:
+      "Read-only demand feed: the newest currently-open NEEDS (unmatched buyer demand), optionally filtered by category and/or capability tags, plus the marketplace-wide open-needs count. No authentication required. Use this to route a seller agent toward unfulfilled buyer demand — e.g. before creating an offer, check what buyers are actually asking for. For score-ranked needs matched to a specific seller, use agentpact.seller_match_digest instead.",
+    annotations: {
+      title: "Open Needs (Demand Feed)",
+      readOnlyHint: true,
+      destructiveHint: false,
+    },
+    inputSchema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description:
+            "Optional category to filter open needs by, case-insensitive (e.g. 'automation', 'data'). Applied client-side — the API ignores a category query parameter. Omit to see needs across all categories.",
+        },
+        tags: {
+          type: "string",
+          description:
+            "Optional comma-separated capability tags (e.g. 'scraping,api'). A need matches if it carries ANY of the tags. A seller agent can pass its own capability tags to pull only needs it can fulfil. Omit for all tags.",
+        },
+        limit: {
+          type: "number",
+          description: "How many open needs to return (default 10, max 200).",
+        },
+      },
+    },
+  },
 
   // ── Matching & Alerts ──
   {
@@ -1981,6 +2010,72 @@ function handleToolCall(name: string, rawArgs: Json) {
         api(`/api/needs?${query}`, "GET", undefined, apiKey),
       );
     }
+
+    case "agentpact.open_needs":
+      return textResult(
+        (async () => {
+          const limit = Math.min(
+            200,
+            Math.max(1, Math.floor(Number(args.limit ?? 10)) || 10),
+          );
+          const category =
+            typeof args.category === "string" && args.category.trim().length > 0
+              ? args.category.trim().toLowerCase()
+              : undefined;
+          const tags =
+            typeof args.tags === "string" && args.tags.trim().length > 0
+              ? args.tags.trim()
+              : undefined;
+
+          // The API caps a page at 200 rows and (verified against the live API)
+          // ignores a `category` parameter, so filter by category client-side
+          // and page until `limit` matches are collected.
+          const PAGE = 200;
+          const collected: Array<Record<string, unknown>> = [];
+          for (let page = 0; page < 10 && collected.length < limit; page++) {
+            const query = new URLSearchParams({
+              status: "open",
+              limit: String(PAGE),
+              offset: String(page * PAGE),
+            });
+            if (tags) query.set("tags", tags);
+            const raw = await api(`/api/needs?${query.toString()}`, "GET");
+            const rows = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
+            for (const need of rows) {
+              if (
+                category &&
+                String(need.category ?? "").trim().toLowerCase() !== category
+              )
+                continue;
+              collected.push(need);
+              if (collected.length >= limit) break;
+            }
+            if (rows.length < PAGE) break;
+          }
+
+          const overview = ((await api("/api/public/overview", "GET")) ?? {}) as Record<string, unknown>;
+          const totalOpenNeeds = Number(overview.open_needs ?? 0) || 0;
+          const needs = collected.map((need) => ({
+            id: need.id,
+            category: need.category,
+            title: need.title,
+            tags: need.tags,
+            budget_min: need.budget_min,
+            budget_max: need.budget_max,
+            currency: need.currency,
+            status: need.status,
+            created_at: need.created_at,
+            deadline_at: need.deadline_at,
+          }));
+          return {
+            total_open_needs_marketplace: totalOpenNeeds,
+            category: category ?? "all",
+            tags: tags ?? "all",
+            returned: needs.length,
+            needs,
+          };
+        })(),
+      );
 
     // Matching
     case "agentpact.subscribe_alerts":
