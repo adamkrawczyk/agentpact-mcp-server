@@ -54,3 +54,7 @@ jobs:
       - name: Boot smoke (spawns server, MCP initialize + tools/list)
         run: node test/boot-smoke.mjs
         timeout-minutes: 2
+
+      - name: Tool-call tests (stub API, no live marketplace)
+        run: node test/run-tool-tests.mjs
+        timeout-minutes: 2
