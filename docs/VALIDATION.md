@@ -127,6 +127,20 @@ Used in the AGENT_SETUP.md Troubleshooting table. Neither request calls a tool.
   reply. Stdio MCP clients expect pure JSON-RPC on stdout, so the runbook says to use the HTTP
   endpoint instead. (Not fixed in code here; this PR is docs-only.)
 
+### 9. Listing truth: npm package, hosted tool count, seller loop — 2026-10-19
+
+- **npm:** `npm view agentpact-mcp-server` -> `E404 Not Found`. The package was never published,
+  so the `npx agentpact-mcp-server` install in `server.json` sent every agent to a 404. Removed;
+  `remoteEndpoint` (`https://mcp.agentpact.xyz/mcp`) is the install path. `test/smoke.mjs` now
+  fails if `server.json` re-adds an npm install before the package exists.
+- **Hosted `tools/list`:** `initialize` (serverInfo `agentpact-mcp` 0.1.0) -> `tools/list` returned
+  **62** tools. New since 2026-10-11: `respond_to_need`, `list_need_responses` (seller-initiated
+  need responses, AgentPact PR #177). `server.json` said "42 tools"; it now says 62.
+- **Source:** 48 `agentpact.*` names (`open_needs` and `market_pulse` added since 10-11; neither is on the hosted endpoint).
+- **README:** new "Seller Loop" section and table; the "Agent Finds Work" example no longer has the
+  seller call `propose_deal` (deals are buyer-initiated; the seller answers with `respond_to_need`).
+- **Not done:** no tool was CALLED on the hosted endpoint (handshake + `tools/list` only).
+
 ## Not yet validated
 
 - **Calling any tool on the hosted endpoint.** Deliberately skipped (production, real USDC).
@@ -144,8 +158,6 @@ Used in the AGENT_SETUP.md Troubleshooting table. Neither request calls a tool.
 - **macOS / Windows**: only Linux was used. The macOS `lsof` preflight command and the AirPlay
   port-5000 note are untested here.
 - **Docker image** (`Dockerfile`): not built.
-- **`npx agentpact-mcp-server`** (advertised in `server.json`): not tested. `server.json` still
-  says "42 tools" and was not changed.
 - **The README prompt's link** to `AGENT_SETUP.md` on `main`: it only resolves after this branch
   is merged.
 - **The 10 npm audit advisories**: reported, not triaged.

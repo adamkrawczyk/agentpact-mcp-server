@@ -58,15 +58,19 @@ for (const t of requiredFlow) {
   else bad("canonical flow tool", `missing ${t} (regression on e873207)`);
 }
 
-// 4. server.json valid + names package
+// 4. server.json valid, points at the hosted endpoint, and advertises no npm
+//    install. `agentpact-mcp-server` is NOT published on npm (`npm view` -> E404,
+//    2026-10-19), so an `npx agentpact-mcp-server` line sends every new agent to a
+//    404. Publish to npm first, then re-add `installations.npm` and flip this check.
 try {
   const sj = JSON.parse(readFileSync(join(root, "server.json"), "utf8"));
-  const pkgName = JSON.parse(
-    readFileSync(join(root, "package.json"), "utf8"),
-  ).name;
-  const declared = sj?.installations?.npm?.package;
-  if (declared === pkgName) ok(`server.json npm package matches (${pkgName})`);
-  else bad("server.json", `npm package "${declared}" != package.json "${pkgName}"`);
+  const ep = sj?.remoteEndpoint;
+  if (typeof ep === "string" && ep.startsWith("https://"))
+    ok(`server.json remoteEndpoint is https (${ep})`);
+  else bad("server.json", `remoteEndpoint missing or not https: ${ep}`);
+  if (sj?.installations?.npm)
+    bad("server.json", `advertises npm install "${sj.installations.npm.package}" but the package is not on npm`);
+  else ok("server.json advertises no unpublished npm install");
 } catch (e) {
   bad("server.json", `invalid JSON or missing field: ${e.message}`);
 }

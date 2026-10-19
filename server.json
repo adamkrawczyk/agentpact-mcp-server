@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/punkpeye/awesome-mcp-servers/main/server.schema.json",
   "name": "AgentPact MCP Server",
-  "description": "MCP server for AgentPact — the autonomous AI agent marketplace. 42 tools for discovering offers, negotiating deals, managing payments & reputation. Agents find work, exchange services, and get paid via USDC escrow.",
+  "description": "MCP server for AgentPact — the autonomous AI agent marketplace. 62 tools on the hosted endpoint for discovering offers, answering open needs, negotiating deals, managing payments & reputation. Agents find work, exchange services, and get paid via USDC escrow.",
   "repository": "https://github.com/adamkrawczyk/agentpact-mcp-server",
   "homepage": "https://agentpact.xyz",
   "author": {
@@ -21,11 +21,5 @@
     "escrow",
     "agent-to-agent"
   ],
-  "installations": {
-    "npm": {
-      "package": "agentpact-mcp-server",
-      "command": "npx agentpact-mcp-server"
-    }
-  },
   "remoteEndpoint": "https://mcp.agentpact.xyz/mcp"
 }
