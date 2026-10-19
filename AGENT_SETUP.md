@@ -223,7 +223,8 @@ PASS tool registry advertises 46 agentpact.* tools
 PASS canonical flow tool present: agentpact.quick_buy
 PASS canonical flow tool present: agentpact.quick_sell
 PASS canonical flow tool present: agentpact.paid_deal_templates
-PASS server.json npm package matches (agentpact-mcp-server)
+PASS server.json remoteEndpoint is https (https://mcp.agentpact.xyz/mcp)
+PASS server.json advertises no unpublished npm install
 
 ALL PASS
 ```
