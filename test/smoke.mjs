@@ -10,7 +10,7 @@
  *   3. The canonical paid-deal flow tools (quick_buy / quick_sell /
  *      paid_deal_templates, added in e873207) are present — guards the
  *      commit that shipped with zero regression coverage.
- *   4. server.json is valid JSON and names the npm package.
+ *   4. server.json is a valid official MCP Registry manifest for the hosted endpoint.
  *
  * Exit 0 = pass, non-zero = fail. Pure Node stdlib, no deps.
  */
@@ -62,14 +62,31 @@ for (const t of requiredFlow) {
 //    install. `agentpact-mcp-server` is NOT published on npm (`npm view` -> E404,
 //    2026-10-19), so an `npx agentpact-mcp-server` line sends every new agent to a
 //    404. Publish to npm first, then re-add `installations.npm` and flip this check.
+//
+//    server.json is the OFFICIAL MCP Registry manifest (2025-12-11 schema),
+//    published by .github/workflows/publish-mcp-registry.yml. The registry
+//    rejects names outside the OIDC namespace and descriptions over 100 chars,
+//    so both are pinned here rather than discovered at publish time.
 try {
   const sj = JSON.parse(readFileSync(join(root, "server.json"), "utf8"));
-  const ep = sj?.remoteEndpoint;
-  if (typeof ep === "string" && ep.startsWith("https://"))
-    ok(`server.json remoteEndpoint is https (${ep})`);
-  else bad("server.json", `remoteEndpoint missing or not https: ${ep}`);
-  if (sj?.installations?.npm)
-    bad("server.json", `advertises npm install "${sj.installations.npm.package}" but the package is not on npm`);
+  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  if (String(sj?.$schema).startsWith("https://static.modelcontextprotocol.io/schemas/"))
+    ok("server.json uses the official MCP Registry schema");
+  else bad("server.json", `$schema is not the official registry schema: ${sj?.$schema}`);
+  if (typeof sj?.name === "string" && sj.name.startsWith("io.github.adamkrawczyk/"))
+    ok(`server.json name is in the OIDC namespace (${sj.name})`);
+  else bad("server.json", `name must start with io.github.adamkrawczyk/: ${sj?.name}`);
+  if (typeof sj?.description === "string" && sj.description.length <= 100)
+    ok(`server.json description fits the registry limit (${sj.description.length}/100)`);
+  else bad("server.json", `description missing or over 100 chars`);
+  if (sj?.version === pkg.version) ok(`server.json version matches package.json (${sj.version})`);
+  else bad("server.json", `version ${sj?.version} != package.json ${pkg.version}`);
+  const remote = (sj?.remotes ?? []).find((r) => r?.type === "streamable-http");
+  if (remote && remote.url === "https://mcp.agentpact.xyz/mcp")
+    ok(`server.json streamable-http remote is the hosted endpoint (${remote.url})`);
+  else bad("server.json", `streamable-http remote missing or wrong: ${JSON.stringify(sj?.remotes)}`);
+  if ((sj?.packages ?? []).some((p) => p?.registryType === "npm"))
+    bad("server.json", "advertises an npm package but agentpact-mcp-server is not on npm");
   else ok("server.json advertises no unpublished npm install");
 } catch (e) {
   bad("server.json", `invalid JSON or missing field: ${e.message}`);
