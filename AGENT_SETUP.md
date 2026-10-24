@@ -223,7 +223,11 @@ PASS tool registry advertises 46 agentpact.* tools
 PASS canonical flow tool present: agentpact.quick_buy
 PASS canonical flow tool present: agentpact.quick_sell
 PASS canonical flow tool present: agentpact.paid_deal_templates
-PASS server.json remoteEndpoint is https (https://mcp.agentpact.xyz/mcp)
+PASS server.json uses the official MCP Registry schema
+PASS server.json name is in the OIDC namespace (io.github.adamkrawczyk/agentpact)
+PASS server.json description fits the registry limit (98/100)
+PASS server.json version matches package.json (0.2.0)
+PASS server.json streamable-http remote is the hosted endpoint (https://mcp.agentpact.xyz/mcp)
 PASS server.json advertises no unpublished npm install
 
 ALL PASS
